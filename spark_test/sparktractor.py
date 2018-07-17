@@ -19,8 +19,6 @@ import glob
 import numpy as np
 import pylab as pl
 
-import astroquery
-
 from spectractor import parameters
 from spectractor.extractor.extractor import Spectractor
 from spectractor.logbook import LogBook
