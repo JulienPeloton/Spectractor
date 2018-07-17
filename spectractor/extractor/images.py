@@ -44,7 +44,7 @@ class Image(object):
         Args:
             file_name (:obj:`str`): path to the image
         """
-        self.my_logger.info('\n\tLoading image %s...' % file_name)
+        # self.my_logger.info('\n\tLoading image %s...' % file_name)
         self.header, self.data = load_fits(file_name)
         extract_info_from_CTIO_header(self, self.header)
         self.header['LSHIFT'] = 0.
@@ -85,11 +85,13 @@ class Image(object):
         self.gain[l // 2:l, l // 2:l] = self.header['GTGAIN22']
 
     def convert_to_ADU_rate_units(self):
-        self.data /= self.expo
+        # self.data /= self.expo
+        self.data = self.data / self.expo
         self.units = 'ADU/s'
 
     def convert_to_ADU_units(self):
-        self.data *= self.expo
+        # self.data *= self.expo
+        self.data = self.data * self.expo
         self.units = 'ADU'
 
     def compute_statistical_error(self):
@@ -411,4 +413,3 @@ def turn_image(image):
                                 units=image.units, target_pixcoords=image.target_pixcoords_rotated)
         ax2.plot([0, image.data_rotated.shape[0] - 2 * margin], [parameters.YWINDOW, parameters.YWINDOW], 'k-')
         if parameters.DISPLAY: plt.show()
-

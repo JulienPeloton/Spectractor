@@ -589,21 +589,21 @@ def ensure_dir(directory_name):
     if not os.path.exists(directory_name):
         os.makedirs(directory_name)
 
-        
+
 def weighted_avg_and_std(values, weights):
     """
     Return the weighted average and standard deviation.
 
     values, weights -- Numpy ndarrays with the same shape.
-    
+
     For example for the PSF
-    
+
     x=pixel number
     y=Intensity in pixel
-    
+
     values-x
     weights=y=f(x)
-    
+
     """
     average = np.average(values, weights=weights)
     variance = np.average((values - average) ** 2, weights=weights)  # Fast and numerically precise
@@ -806,7 +806,10 @@ def clean_target_spikes(data, saturation):
 
 
 def load_fits(file_name, hdu_index=0):
-    hdu_list = fits.open(file_name)
+    if type(file_name) == str:
+        hdu_list = fits.open(file_name)
+    else:
+        hdu_list = fits.HDUList.fromstring(file_name)
     header = hdu_list[hdu_index].header
     data = hdu_list[hdu_index].data
     hdu_list.close()  # need to free allocation for file descripto

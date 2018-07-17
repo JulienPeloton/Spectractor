@@ -4,7 +4,7 @@ from spectractor import parameters
 from spectractor.tools import ensure_dir
 
 
-def Spectractor(file_name, output_directory, guess, target, atmospheric_lines=True, line_detection=False):
+def Spectractor(file_name, output_directory, guess, target, atmospheric_lines=True, line_detection=False, databinary=None):
     """ Spectractor
     Main function to extract a spectrum from an image
 
@@ -48,7 +48,10 @@ def Spectractor(file_name, output_directory, guess, target, atmospheric_lines=Tr
     my_logger = parameters.set_logger(__name__)
     my_logger.info('\n\tStart SPECTRACTOR')
     # Load reduced image
-    image = Image(file_name, target=target)
+    if databinary is not None:
+        image = Image(databinary, target=target)
+    else:
+        image = Image(file_name, target=target)
     if parameters.DEBUG:
         image.plot_image(scale='log10', target_pixcoords=guess)
     # Set output path
@@ -88,9 +91,9 @@ def Spectractor(file_name, output_directory, guess, target, atmospheric_lines=Tr
     return spectrum
 
 
-# if __name__ == "__main__":
-#     import doctest
-#     if np.__version__ >= "1.14.0":
-#         np.set_printoptions(legacy="1.13")
+#if __name__ == "__main__":
+#    import doctest
+#    if np.__version__ >= "1.14.0":
+#        np.set_printoptions(legacy="1.13")
 #
-#     doctest.testmod()
+#    doctest.testmod()
