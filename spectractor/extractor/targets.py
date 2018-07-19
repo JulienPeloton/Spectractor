@@ -9,8 +9,8 @@ from scipy.interpolate import interp1d
 
 from spectractor import parameters
 
-if os.getenv("PYSYN_CDBS"):
-    import pysynphot as S
+# if os.getenv("PYSYN_CDBS"):
+import pysynphot as S
 
 
 class Target:
@@ -96,8 +96,8 @@ class Target:
         self.spectra = []
         # first try with pysynphot
         file_names = []
-        if os.getenv("PYSYN_CDBS") is not None:
-            dirname = os.path.expandvars('$PYSYN_CDBS/calspec/')
+        if os.getenv("HOME") is not None:
+            dirname = os.path.expandvars('$HOME/cdbs_light/calspec')
             for fname in os.listdir(dirname):
                 if os.path.isfile(dirname + fname):
                     if self.label.lower() in fname.lower():
