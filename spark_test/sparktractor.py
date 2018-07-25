@@ -12,9 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from pyspark.sql import SparkSession
+from astroquery.exceptions import RemoteServiceError
 
 import os
 import glob
+try:
+    os.mkdir("astropy")
+except FileExistsError:
+    pass
+
+os.environ["XDG_CONFIG_HOME"] = "."
+os.environ["XDG_CACHE_HOME"] = "."
 
 import numpy as np
 import pylab as pl
@@ -27,7 +35,7 @@ from spectractor.extractor.spectroscopy import Spectrum
 import argparse
 
 def addargs(parser):
-    """ Parse command line arguments for im2cat """
+    """ Parse command line arguments for Sparktractor """
 
     ## Arguments
     parser.add_argument(
@@ -44,6 +52,11 @@ def addargs(parser):
         '-logfile', dest='logfile',
         default="ctiofulllogbook_jun2017_v5.csv",
         help='CSV log file to filter out bad observations')
+
+    parser.add_argument(
+        '-filesystem', dest='filesystem',
+        default="hdfs",
+        help='hdfs or lustre - it has an impact on the way we look for files.')
 
     parser.add_argument(
         '-log_level', dest='log_level',
@@ -78,14 +91,14 @@ def hglob(sc, datapath="hdfs://134.158.75.222:8020/user/julien.peloton"):
     configuration = sc._gateway.jvm.org.apache.hadoop.conf.Configuration
 
     fs = filesystem.get(uri(datapath), configuration())
-    status = fs.listStatus(path(datapath))
+    status = fs.globStatus(path(datapath))
 
     fns = []
     for filestatus in status:
         fns.append(str(filestatus.getPath()))
     return fns
 
-def search_for_image(tag):
+def search_for_image(logbook, tag):
     """
     Search for image according to a `tag`, and return
     info (target name, xposition, yposition).
@@ -102,7 +115,6 @@ def search_for_image(tag):
         Return the info (name, xposition, yposition) or None if
         at least one of the infos is None.
     """
-    logbook = LogBook(logbook=csvfile)
     target, xpos, ypos = logbook.search_for_image(tag)
     if target is None or xpos is None or ypos is None:
         return None
@@ -132,8 +144,16 @@ def run_spectractor(file_name, output_directory, position, target, data):
     file_name: String
         The name of the processed file.
     """
-    spectrum = Spectractor(
-        file_name, output_directory, position, target, databinary=data)
+    try:
+        Spectractor(
+            file_name, output_directory,
+            position, target, databinary=data)
+    except ValueError:
+        file_name = file_name + "_ValueError_BAD"
+    except RemoteServiceError:
+        file_name = file_name + "_RemoteServiceError_BAD"
+    except IndexError:
+        file_name = file_name + "_IndexError_BAD"
     return file_name
 
 def quiet_logs(sc, log_level="ERROR"):
@@ -160,13 +180,15 @@ def quiet_logs(sc, log_level="ERROR"):
 
 if __name__ == "__main__":
     """
-    Distribute image data from a FITS file using Spark,
-    and build a source catalog for each image.
+    Extract spectra from CTIO images in order to test
+    the performance of dispersers dedicated to the LSST Auxiliary Telescope,
+    and characterize the atmospheric transmission.
     """
     parser = argparse.ArgumentParser(
         description="""
-        Distribute image data from a FITS file using Spark,
-        and build a source catalog for each image.
+        Extract spectra from CTIO images in order to test
+        the performance of dispersers dedicated to the LSST Auxiliary Telescope
+        and characterize the atmospheric transmission.
         """)
     addargs(parser)
     args = parser.parse_args(None)
@@ -186,25 +208,48 @@ if __name__ == "__main__":
         parameters.VERBOSE = False
         parameters.DEBUG = False
 
-    ## Load CTIO image name list -- just a few local files for test
+    ## Load CTIO image name list
     datapath = args.datapath
-    file_names = hglob(spark.sparkContext, datapath)
-    print("found {} files".format(len(file_names)))
-    print(file_names)
+    if args.filesystem == 'hdfs':
+        file_names = hglob(spark.sparkContext, datapath)
+    elif args.filesystem == 'lustre':
+        file_names = glob.glob(os.path.join(datapath, "*/*.fits"))
+
+    print("found {} files on {}".format(len(file_names), args.filesystem))
 
     ## Name of the logbook containing info about images.
     csvfile = args.logfile
+    logbook = LogBook(logbook=csvfile)
 
-    rdd = spark.sparkContext.binaryFiles(datapath, len(datapath))\
-        .map(lambda x: [x[0], search_for_image(x[0].split('/')[-1]), x[1]])\
-        .filter(lambda x: x[1] is not None)\
-        .map(lambda x: run_spectractor(x[0], "output", [x[1][1], x[1][2]], x[1][0], x[2]))\
-        .collect()
+    paramdic = {
+        fn: search_for_image(logbook, fn.split('/')[-1]) for fn in file_names}
 
-    ## Print fully processed files.
+    spark.sparkContext.broadcast(paramdic)
+
+    if args.filesystem == 'lustre':
+        datapath = os.path.join(datapath, "*/*.fits")
+        rdd = spark.sparkContext.binaryFiles(datapath, len(paramdic))\
+            .map(lambda x: [x[0].split(":")[1], paramdic[x[0].split(":")[1]], x[1]])\
+            .filter(lambda x: x[1] is not None)\
+            .map(lambda x: run_spectractor(x[0], "output", [x[1][1], x[1][2]], x[1][0], x[2]))\
+            .collect()
+    elif args.filesystem == 'hdfs':
+        rdd = spark.sparkContext.binaryFiles(datapath, len(paramdic))\
+            .map(lambda x: [x[0], paramdic[x[0]], x[1]])\
+            .filter(lambda x: paramdic[x[0]] is not None)\
+            .map(lambda x: run_spectractor(x[0], "output", [x[1][1], x[1][2]], x[1][0], x[2]))\
+            .collect()
+
+    ## Collect statistics
+    good_files = [i for i in rdd if "_BAD" not in i]
+    indexed_err = [i for i in rdd if "_Index" in i]
+    value_err = [i for i in rdd if "_Value" in i]
+    remote_err = [i for i in rdd if "_Remote" in i]
     print("{}/{} files processed".format(len(rdd), len(file_names)))
-    for file_processed in rdd:
-        print(file_processed)
+    print("{}/{} files processed".format(len(good_files), len(rdd)))
+    print("{} index err".format(len(indexed_err)))
+    print("{} value err".format(len(value_err)))
+    print("{} remote err".format(len(remote_err)))
 
     # ## Load spectra from disk
     # spectra_list = glob.glob(os.path.join(root, "spark_test/output/*.fits"))
